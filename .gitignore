@@ -1,0 +1,6 @@
+data/ATOMIC10X.jsonl
+data/raw_statements.db
+data/raw_sjts.db
+__pycache__/
+vectors/
+logs/
