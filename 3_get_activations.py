@@ -5,7 +5,7 @@ from pathlib import Path
 import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
 from tqdm.auto import tqdm
-from helpers import seed_all, normalize_table_name
+from helpers import seed_all, normalize_table_name, table_has_enough
 
 
 CONFIG = {
@@ -192,19 +192,8 @@ def main():
     table = normalize_table_name(concept_human)
     dest_db_path = get_dest_db_path(model_name, mode)
 
-    if Path(dest_db_path).exists():
-        with sqlite3.connect(dest_db_path) as conn:
-            cur = conn.cursor()
-            cur.execute(
-                "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
-                (table,),
-            )
-            row = cur.fetchone()
-            if row is not None:
-                cur.execute(f"SELECT COUNT(*) FROM {table}")
-                n = cur.fetchone()[0]
-                if n == CONFIG["expected_rows"]:
-                    return
+    if table_has_enough(dest_db_path, table, CONFIG["expected_rows"]):
+        return
 
     rows = fetch_rows(table)
 
@@ -269,4 +258,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

@@ -1,20 +1,14 @@
 import sqlite3
 import torch
-import torch.nn.functional as F
-from transformers import AutoTokenizer, AutoModel, AutoModelForSequenceClassification
 from tqdm.auto import tqdm
-from helpers import (
-    seed_all,
-    quote_ident,
-)
+from helpers import seed_all, embed_batch, init_embed_model, init_fluency_model, fluency_filter_batch
+
 
 CONFIG = {
     "raw_sqlite_path": "data/raw_sjts.db",
     "out_sqlite_path": "data/sjts.db",
     "seed": 42,
-    "embedder_model_id": "Qwen/Qwen3-Embedding-0.6B",
     "similarity_threshold": 0.90,
-    "fluency_model_id": "cointegrated/roberta-large-cola-krishna2020",
     "fluency_batch": 4096,
     "fluency_threshold": 0.95,
 }
@@ -32,31 +26,6 @@ def get_tables(db_path):
     for row in rows:
         tables.append(row[0])
     return tables
-
-
-@torch.no_grad()
-def embed_batch(embed_tok, embed_model, texts):
-    x = embed_tok(
-        texts,
-        padding=True,
-        truncation=False,
-        return_tensors="pt",
-    )
-    x = x.to(embed_model.device)
-    x = embed_model(**x)
-    x = x.last_hidden_state[:, -1]
-    return F.normalize(x, p=2, dim=1)
-
-
-def init_embed_model():
-    tok = AutoTokenizer.from_pretrained(CONFIG["embedder_model_id"], padding_side="left")
-    model = AutoModel.from_pretrained(
-        CONFIG["embedder_model_id"],
-        dtype=torch.bfloat16,
-    )
-    model.to("cuda")
-    model.eval()
-    return tok, model
 
 
 @torch.no_grad()
@@ -158,30 +127,6 @@ def select_topk_from_mis(rows, sjt_embs, item_emb, k):
     return selected_rows
 
 
-def init_fluency_model():
-    tok = AutoTokenizer.from_pretrained(CONFIG["fluency_model_id"])
-    model = AutoModelForSequenceClassification.from_pretrained(
-        CONFIG["fluency_model_id"]
-    )
-    model.to("cuda")
-    model.eval()
-    return tok, model
-
-
-@torch.no_grad()
-def fluency_filter_batch(flu_tok, flu_model, texts):
-    x = flu_tok(
-        texts,
-        padding=True,
-        truncation=False,
-        return_tensors="pt",
-    )
-    x = x.to(flu_model.device)
-    x = flu_model(**x)
-    x = x.logits.softmax(dim=1)
-    return (x[:, 0] >= CONFIG["fluency_threshold"]).tolist()
-
-
 def filter_with_fluency(flu_tok, flu_model, rows, needed, desc):
     selected = []
     if not rows or needed <= 0:
@@ -203,6 +148,7 @@ def filter_with_fluency(flu_tok, flu_model, rows, needed, desc):
             flu_tok,
             flu_model,
             texts,
+            CONFIG["fluency_threshold"],
         )
         for row, keep in zip(batch, keep_mask):
             if not keep:
@@ -232,8 +178,7 @@ def main():
             )
             exists = oc_cur.fetchone() is not None
             if exists:
-                out_ident = quote_ident(table)
-                oc_cur.execute(f"DROP TABLE IF EXISTS {out_ident}")
+                oc_cur.execute(f"DROP TABLE IF EXISTS {table}")
 
             tables_to_process.append(table)
         oc.commit()
@@ -248,9 +193,8 @@ def main():
     with sqlite3.connect(CONFIG["raw_sqlite_path"]) as rc:
         rc_cur = rc.cursor()
         for table in tables_to_process:
-            table_ident = quote_ident(table)
             rc_cur.execute(
-                f"SELECT dimension, facet, item, key, sjt FROM {table_ident}"
+                f"SELECT dimension, facet, item, key, sjt FROM {table}"
             )
             rows = rc_cur.fetchall()
 
@@ -365,9 +309,8 @@ def main():
     with sqlite3.connect(CONFIG["out_sqlite_path"]) as oc:
         oc_cur = oc.cursor()
         for table in tables_to_process:
-            out_ident = quote_ident(table)
             oc_cur.execute(
-                f"CREATE TABLE {out_ident} ("
+                f"CREATE TABLE {table} ("
                 "dimension TEXT,"
                 "facet TEXT,"
                 "item TEXT,"
@@ -396,7 +339,7 @@ def main():
                         )
                     )
                 oc_cur.executemany(
-                    f"INSERT INTO {out_ident} "
+                    f"INSERT INTO {table} "
                     "(dimension, facet, item, key, sjt) "
                     "VALUES (?, ?, ?, ?, ?)",
                     to_write,
@@ -407,4 +350,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

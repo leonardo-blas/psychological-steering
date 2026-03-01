@@ -5,12 +5,12 @@ import sqlite3
 import random
 import numpy as np
 import torch
-from transformers import AutoTokenizer, AutoModel
 from scipy.spatial.distance import cosine
 from sklearn.decomposition import PCA
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
 import matplotlib as mpl
+from helpers import init_embed_model, embed_texts
 
 
 CONFIG = {
@@ -19,7 +19,6 @@ CONFIG = {
     "statements_db_path": "data/statements.db",
     #"statements_db_path": "../injections/data/best_follows_framework/statements.db",
     "out_dir": "statements_validation",
-    "embed_model_id": "Qwen/Qwen3-Embedding-0.6B",
     "batch_size": 512,
     "concepts": ["openness", "conscientiousness", "extraversion", "agreeableness", "neuroticism", "psychopathy", "narcissism", "machiavellianism"],
     "trait_acronym":  {
@@ -53,12 +52,6 @@ def seed_all(seed: int) -> None:
     torch.cuda.manual_seed_all(seed)
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
-
-
-def table_exists(conn: sqlite3.Connection, table: str) -> bool:
-    cur = conn.cursor()
-    cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?;", (table,))
-    return cur.fetchone() is not None
 
 
 def display_name(key: str) -> str:
@@ -98,9 +91,10 @@ def load_our_statements():
     texts, sources, traits, labels = [], [], [], []
     with sqlite3.connect(CONFIG["statements_db_path"]) as conn:
         for t in CONFIG["concepts"]:
-            if not table_exists(conn, t):
-                continue
             cur = conn.cursor()
+            cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?;", (t,))
+            if not cur.fetchone():
+                continue
             cur.execute(f'SELECT statement, label FROM "{t}"')
             for stmt, lab in cur.fetchall():
                 if stmt is None:
@@ -115,30 +109,6 @@ def load_our_statements():
                 traits.append(t)
                 labels.append(int(lab))
     return texts, sources, traits, labels
-
-
-def embed_texts(texts):
-    if len(texts) == 0:
-        return np.zeros((0, 0), dtype=np.float32)
-
-    tokenizer = AutoTokenizer.from_pretrained(CONFIG["embed_model_id"])
-    model = AutoModel.from_pretrained(CONFIG["embed_model_id"], dtype=torch.bfloat16).to("cuda")
-    model.eval()
-
-    all_emb = []
-    with torch.no_grad():
-        start = 0
-        while start < len(texts):
-            end = min(start + CONFIG["batch_size"], len(texts))
-            batch = [texts[i] for i in range(start, end)]
-            enc = tokenizer(batch, padding=True, truncation=True, return_tensors="pt").to("cuda")
-            out = model(**enc)
-            pooled = out.last_hidden_state.mean(dim=1)
-            pooled = torch.nn.functional.normalize(pooled, p=2, dim=1).to(dtype=torch.float32)
-            all_emb.append(pooled.cpu().numpy())
-            start = end
-
-    return np.concatenate(all_emb, axis=0)
 
 
 def point_style(src: str, trait: str, lab: int | None):
@@ -265,7 +235,16 @@ def main():
     traits_all = a_traits + o_traits
     labels_all = a_labels + o_labels
 
-    emb = embed_texts(texts_all)
+    if len(texts_all) == 0:
+        emb = np.zeros((0, 0), dtype=np.float32)
+    else:
+        embed_tok, embed_model = init_embed_model()
+        emb = embed_texts(
+            embed_tok,
+            embed_model,
+            texts_all,
+            batch_size=int(CONFIG["batch_size"]),
+        )
 
     print("\n=== Per-trait ===")
     compare_per_trait(emb, sources_all, traits_all, labels_all, CONFIG["out_dir"])
@@ -273,4 +252,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

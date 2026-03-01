@@ -15,19 +15,18 @@ from sklearn.metrics import (
 )
 from sklearn.model_selection import train_test_split
 from tqdm.auto import tqdm
-from helpers import normalize_table_name, wrap_title
+from helpers import normalize_table_name
 
 
+CONFIG = {
+    "seed": 42,
+}
 warnings.filterwarnings(
     "ignore",
     message="divide by zero encountered in log",
     category=RuntimeWarning,
     module="sklearn.linear_model._logistic",
 )
-
-CONFIG = {
-    "seed": 42,
-}
 
 
 def get_mode_dir(mode: str) -> str:
@@ -72,6 +71,25 @@ def fetch_activations(db_path: str, table: str):
     X = np.stack(X_list, axis=0)
     y = np.array(y_list, dtype=int)
     return torch.from_numpy(X), torch.from_numpy(y)
+
+
+def wrap_title(title: str, max_len: int = 40) -> str:
+    if len(title) <= max_len:
+        return title
+    words = title.split()
+    lines = []
+    current = ""
+    for w in words:
+        if not current:
+            current = w
+        elif len(current) + 1 + len(w) <= max_len:
+            current = current + " " + w
+        else:
+            lines.append(current)
+            current = w
+    if current:
+        lines.append(current)
+    return "\n".join(lines)
 
 
 def plot_metric(

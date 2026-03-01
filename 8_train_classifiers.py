@@ -1,18 +1,15 @@
 import sqlite3
 from pathlib import Path
 import torch
-import torch.nn.functional as F
-from transformers import AutoTokenizer, AutoModel
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score, precision_recall_fscore_support
 import joblib
-from helpers import seed_all
+from helpers import seed_all, embed_batch, init_embed_model
 
 
 CONFIG = {
     "seed": 42,
     "probe_db_path": "data/statements.db",
-    "probe_embed_model_id": "Qwen/Qwen3-Embedding-0.6B",
     "max_iter": 1000,
     "tol": 0.001,
 }
@@ -22,31 +19,6 @@ def classifier_path(name: str) -> Path:
     root = Path("classifiers")
     root.mkdir(parents=True, exist_ok=True)
     return root / f"{name}.pkl"
-
-
-def init_embedder():
-    tok = AutoTokenizer.from_pretrained(CONFIG["probe_embed_model_id"], padding_side="left")
-    model = AutoModel.from_pretrained(
-        CONFIG["probe_embed_model_id"],
-        dtype=torch.bfloat16,
-    )
-    model.to("cuda")
-    model.eval()
-    return tok, model
-
-
-@torch.no_grad()
-def embed_batch(embed_tok, embed_model, texts):
-    x = embed_tok(
-        texts,
-        padding=True,
-        truncation=False,
-        return_tensors="pt",
-    )
-    x = x.to(embed_model.device)
-    x = embed_model(**x)
-    x = x.last_hidden_state[:, -1]
-    return F.normalize(x, p=2, dim=1)
 
 
 def get_tables():
@@ -108,7 +80,7 @@ def main():
     seed_all(CONFIG["seed"])
     tables = get_tables()
     print(f"Found tables: {', '.join(tables)}")
-    embed_tok, embed_model = init_embedder()
+    embed_tok, embed_model = init_embed_model()
     for table in tables:
         print(f"Training classifier for table {table}...")
         train_classifier_for_table(table, embed_tok, embed_model)
@@ -116,4 +88,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

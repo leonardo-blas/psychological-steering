@@ -2,18 +2,11 @@ import json
 import re
 import sqlite3
 import torch
-import torch.nn.functional as F
-from transformers import AutoTokenizer, AutoModel
 from transformers.utils import logging as hf_logging
 from tqdm.auto import tqdm
 from vllm import LLM, SamplingParams
-from helpers import (
-    seed_all,
-    format_atomic10x_head,
-    ABS_SYSTEM_PROMPT,
-    ABSOLUTE_PROMPT_WO_REF,
-    rubric,
-)
+from helpers import seed_all, embed_batch, init_embed_model
+
 
 CONFIG = {
     "db_path": "data/heads.db",
@@ -22,7 +15,6 @@ CONFIG = {
     # ATOMIC10X filter.
     "min_p_valid": 0.99,
     # Deduplication filter.
-    "embed_model_id": "Qwen/Qwen3-Embedding-0.6B",
     "embed_batch": 4096,
     "dedup_cos_threshold": 0.9,
     # Readability and coherence filter.
@@ -36,6 +28,34 @@ CONFIG = {
     "prometheus_max_tokens": 1024,
     "prometheus_instruction": "Write a short and realistic sentence.",
 }
+# From Prometeus-Eval.
+ABS_SYSTEM_PROMPT = "You are a fair judge assistant tasked with providing clear, objective feedback based on specific criteria, ensuring each assessment reflects the absolute standards set for performance."
+ABSOLUTE_PROMPT_WO_REF = """###Task Description:
+An instruction (might include an Input inside it), a response to evaluate, and a score rubric representing a evaluation criteria are given.
+1. Write a detailed feedback that assess the quality of the response strictly based on the given score rubric, not evaluating in general.
+2. After writing a feedback, write a score that is an integer between 1 and 5. You should refer to the score rubric.
+3. The output format should look as follows: "(write a feedback for criteria) [RESULT] (an integer number between 1 and 5)"
+4. Please do not generate any other opening, closing, and explanations.
+
+###The instruction to evaluate:
+{instruction}
+
+###Response to evaluate:
+{response}
+
+###Score Rubrics:
+{rubric}
+
+###Feedback: """
+# From FLASK.
+rubric = (
+    "[Is the response structured to promote readability and coherence? Does the response exhibit excellent organization?]\n"
+    "Score 1: The response is completely unclear, making comprehension difficult.\n"
+    "Score 2: The response has significant areas of ambiguity or disorganization, critically affecting reader comprehension.\n"
+    "Score 3: The response contains some unclear components, or its organization could be improved.\n"
+    "Score 4: The response is generally understandable but could be further optimized for readability.\n"
+    "Score 5: The response is clear and well-organized, enabling the reader to effortlessly follow the content.\n"
+)
 hf_logging.set_verbosity_error()
 
 
@@ -53,28 +73,15 @@ def load_atomic_rows():
     return rows
 
 
-def init_embed_model():
-    tok = AutoTokenizer.from_pretrained(CONFIG["embed_model_id"], padding_side="left")
-    model = AutoModel.from_pretrained(
-        CONFIG["embed_model_id"],
-        dtype=torch.bfloat16,
-    )
-    model.to("cuda")
-    model.eval()
-    return tok, model
-
-@torch.no_grad()
-def embed_batch(embed_tok, embed_model, texts):
-    x = embed_tok(
-        texts,
-        padding=True,
-        truncation=False,
-        return_tensors="pt",
-    )
-    x = x.to(embed_model.device)
-    x = embed_model(**x)
-    x = x.last_hidden_state[:, -1]
-    return F.normalize(x, p=2, dim=1)
+def format_atomic10x_head(text: str) -> str:
+    s = text
+    name_x = "Alex" if "Alex" not in s else "Avery"
+    name_y = "Brook" if "Brook" not in s else "Blake"
+    name_z = "Charlie" if "Charlie" not in s else "Cameron"
+    s = re.sub(r"\b[Pp]ersonX\b", name_x, s)
+    s = re.sub(r"\b[Pp]ersonY\b", name_y, s)
+    s = re.sub(r"\b[Pp]ersonZ\b", name_z, s)
+    return s if s.endswith(".") else s + "."
 
 
 def init_prometheus():
@@ -262,4 +269,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

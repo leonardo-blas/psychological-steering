@@ -4,20 +4,17 @@ import csv
 import sqlite3
 import numpy as np
 import torch
-import torch.nn.functional as F
-from transformers import AutoTokenizer, AutoModel
 from scipy.spatial.distance import cosine
 from sklearn.decomposition import PCA
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
 import matplotlib as mpl
-from helpers import seed_all
+from helpers import seed_all, init_embed_model, embed_texts
 
 
 CONFIG = {
     "seed": 42,
     "sjts_db_path": "data/sjts.db",
-    "embed_model_id": "Qwen/Qwen3-Embedding-0.6B",
     "batch_size": 1024,
     "big5_dimensions": [
         "Openness",
@@ -344,34 +341,6 @@ def load_mfq30_sjt_texts():
     return texts, sources, dims
 
 
-@torch.no_grad()
-def embed_batch(embed_tok, embed_model, texts):
-    x = embed_tok(
-        texts,
-        padding=True,
-        truncation=False,
-        return_tensors="pt",
-    )
-    x = x.to(embed_model.device)
-    x = embed_model(**x)
-    x = x.last_hidden_state[:, -1]
-    return F.normalize(x, p=2, dim=1)
-
-
-def embed_texts(texts):
-    tokenizer = AutoTokenizer.from_pretrained(CONFIG["embed_model_id"], padding_side="left")
-    model = AutoModel.from_pretrained(CONFIG["embed_model_id"], dtype=torch.bfloat16).to("cuda")
-    model.eval()
-    all_embeddings = []
-    start = 0
-    while start < len(texts):
-        end = min(start + CONFIG["batch_size"], len(texts))
-        emb = embed_batch(tokenizer, model, texts[start:end])
-        all_embeddings.append(emb.to(dtype=torch.float32).cpu().numpy())
-        start = end
-    return np.concatenate(all_embeddings, axis=0)
-
-
 def plot_pca(X, src_labels, pdf_path):
     if X.shape[0] == 0:
         return
@@ -493,7 +462,13 @@ def main():
         sources_all.extend(sources)
         dims_all.extend(dims)
 
-    emb = embed_texts(texts_all)
+    embed_tok, embed_model = init_embed_model()
+    emb = embed_texts(
+        embed_tok,
+        embed_model,
+        texts_all,
+        batch_size=int(CONFIG["batch_size"]),
+    )
 
     print("\n=== TRAIT vs Ours (IPIP-120 based) ===")
     compare_by_dim(
@@ -558,4 +533,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

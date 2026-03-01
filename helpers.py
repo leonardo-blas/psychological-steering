@@ -1,39 +1,14 @@
 import re
 import sqlite3
 import random
+from pathlib import Path
 import numpy as np
 import torch
+import torch.nn.functional as F
+from transformers import AutoTokenizer, AutoModel, AutoModelForSequenceClassification
 
-
-# From Prometeus-Eval.
-ABS_SYSTEM_PROMPT = "You are a fair judge assistant tasked with providing clear, objective feedback based on specific criteria, ensuring each assessment reflects the absolute standards set for performance."
-ABSOLUTE_PROMPT_WO_REF = """###Task Description:
-An instruction (might include an Input inside it), a response to evaluate, and a score rubric representing a evaluation criteria are given.
-1. Write a detailed feedback that assess the quality of the response strictly based on the given score rubric, not evaluating in general.
-2. After writing a feedback, write a score that is an integer between 1 and 5. You should refer to the score rubric.
-3. The output format should look as follows: "(write a feedback for criteria) [RESULT] (an integer number between 1 and 5)"
-4. Please do not generate any other opening, closing, and explanations.
-
-###The instruction to evaluate:
-{instruction}
-
-###Response to evaluate:
-{response}
-
-###Score Rubrics:
-{rubric}
-
-###Feedback: """
-
-# From FLASK.
-rubric = (
-    "[Is the response structured to promote readability and coherence? Does the response exhibit excellent organization?]\n"
-    "Score 1: The response is completely unclear, making comprehension difficult.\n"
-    "Score 2: The response has significant areas of ambiguity or disorganization, critically affecting reader comprehension.\n"
-    "Score 3: The response contains some unclear components, or its organization could be improved.\n"
-    "Score 4: The response is generally understandable but could be further optimized for readability.\n"
-    "Score 5: The response is clear and well-organized, enabling the reader to effortlessly follow the content.\n"
-)
+EMBED_MODEL_ID = "Qwen/Qwen3-Embedding-0.6B"
+FLUENCY_MODEL_ID = "cointegrated/roberta-large-cola-krishna2020"
 
 
 def seed_all(s: int):
@@ -42,6 +17,88 @@ def seed_all(s: int):
     torch.manual_seed(s)
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(s)
+
+
+def init_embed_model():
+    tok = AutoTokenizer.from_pretrained(EMBED_MODEL_ID, padding_side="left")
+    if tok.pad_token is None:
+        tok.pad_token = tok.eos_token
+    model = AutoModel.from_pretrained(
+        EMBED_MODEL_ID,
+        torch_dtype=torch.bfloat16,
+    )
+    model.to("cuda")
+    model.eval()
+    return tok, model
+
+
+@torch.no_grad()
+def embed_batch(embed_tok, embed_model, texts):
+    enc = embed_tok(
+        texts,
+        padding=True,
+        truncation=False,
+        return_tensors="pt",
+    )
+    enc = enc.to(embed_model.device)
+    out = embed_model(**enc)
+    x = out.last_hidden_state[:, -1]
+    x = F.normalize(x, p=2, dim=1)
+    return x
+
+
+@torch.no_grad()
+def embed_texts(embed_tok, embed_model, texts, batch_size: int):
+    all_embs = []
+    bs = int(batch_size)
+    for i in range(0, len(texts), bs):
+        batch = texts[i : i + bs]
+        emb = embed_batch(embed_tok, embed_model, batch)
+        all_embs.append(emb)
+    embs = torch.cat(all_embs, dim=0)
+    return embs.to(torch.float32).cpu().numpy()
+
+
+def init_fluency_model():
+    model_id = FLUENCY_MODEL_ID
+    tok = AutoTokenizer.from_pretrained(model_id)
+    model = AutoModelForSequenceClassification.from_pretrained(model_id)
+    model.to("cuda")
+    model.eval()
+    return tok, model
+
+
+@torch.no_grad()
+def fluency_filter_batch(flu_tok, flu_model, texts, threshold: float):
+    enc = flu_tok(
+        texts,
+        padding=True,
+        truncation=False,
+        return_tensors="pt",
+    )
+    enc = enc.to(flu_model.device)
+    out = flu_model(**enc)
+    probs = out.logits.softmax(dim=1)
+    return (probs[:, 0] >= float(threshold)).tolist()
+
+
+@torch.no_grad()
+def fluency_scores(fluency_tok, fluency_model, texts, batch_size: int = 512):
+    if not texts:
+        return []
+    bs = int(batch_size)
+    if bs <= 0:
+        raise ValueError("batch_size must be > 0.")
+    scores = []
+    for i in range(0, len(texts), bs):
+        batch = texts[i : i + bs]
+        enc = fluency_tok(batch, padding=True, truncation=True, return_tensors="pt")
+        for k in enc:
+            enc[k] = enc[k].to(fluency_model.device)
+        out = fluency_model(**enc)
+        probs = out.logits.softmax(1)[:, 0]
+        scores.extend(probs.detach().cpu().tolist())
+    return scores
 
 
 def normalize_table_name(s: str) -> str:
@@ -53,67 +110,15 @@ def normalize_table_name(s: str) -> str:
     return t
 
 
-def quote_ident(name: str) -> str:
-    escaped = name.replace('"', '""')
-    return f'"{escaped}"'
-
-
-def table_exists(conn: sqlite3.Connection, table: str) -> bool:
-    cur = conn.execute(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
-        (table,),
-    )
-    row = cur.fetchone()
-    return row is not None
-
-
-def get_table_rowcount_conn(conn: sqlite3.Connection, table: str) -> int:
-    if not table_exists(conn, table):
-        return 0
-    ident = quote_ident(table)
-    cur = conn.execute(f"SELECT COUNT(*) FROM {ident}")
-    row = cur.fetchone()
-    if row is None:
-        return 0
-    return int(row[0])
-
-
-def get_table_rowcount(db_path: str, table: str) -> int:
-    with sqlite3.connect(db_path) as conn:
-        return get_table_rowcount_conn(conn, table)
-
-
 def table_has_enough(db_path: str, table: str, total_needed: int) -> bool:
-    n = get_table_rowcount(db_path, table)
-    return n >= total_needed
-
-
-def format_atomic10x_head(text: str) -> str:
-    s = text
-    name_x = "Alex" if "Alex" not in s else "Avery"
-    name_y = "Brook" if "Brook" not in s else "Blake"
-    name_z = "Charlie" if "Charlie" not in s else "Cameron"
-    s = re.sub(r"\b[Pp]ersonX\b", name_x, s)
-    s = re.sub(r"\b[Pp]ersonY\b", name_y, s)
-    s = re.sub(r"\b[Pp]ersonZ\b", name_z, s)
-    return s if s.endswith(".") else s + "."
-
-
-def wrap_title(title: str, max_len: int = 40) -> str:
-    if len(title) <= max_len:
-        return title
-    words = title.split()
-    lines = []
-    current = ""
-    for w in words:
-        if not current:
-            current = w
-        elif len(current) + 1 + len(w) <= max_len:
-            current = current + " " + w
+    if not Path(db_path).exists():
+        raise FileNotFoundError(f"Database file does not exist: {db_path}")
+    with sqlite3.connect(db_path) as conn:
+        cur = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table,))
+        if not cur.fetchone():
+            n = 0
         else:
-            lines.append(current)
-            current = w
-    if current:
-        lines.append(current)
-    return "\n".join(lines)
-
+            cur = conn.execute(f"SELECT COUNT(*) FROM {table}")
+            row = cur.fetchone()
+            n =  0 if not row else row[0]
+    return n >= total_needed

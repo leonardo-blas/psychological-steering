@@ -3,15 +3,15 @@ import re
 import sqlite3
 import sys
 import torch
-import torch.nn.functional as F
-from transformers import AutoTokenizer, AutoModel, AutoModelForSequenceClassification
 from tqdm.auto import tqdm
 from helpers import (
     seed_all,
+    embed_batch,
+    init_embed_model,
+    init_fluency_model,
+    fluency_filter_batch,
     normalize_table_name,
-    quote_ident,
     table_has_enough,
-    get_table_rowcount_conn,
 )
 
 CONFIG = {
@@ -19,11 +19,9 @@ CONFIG = {
     "out_sqlite_path": "data/statements.db",
     "seed": 42,
     "keep_per_label": 500,
-    "embedder_model_id": "Qwen/Qwen3-Embedding-0.6B",
     "batch_embed": 4096,
     "similarity_threshold": 0.9,
     "allowed": re.compile(r"^[A-Za-z0-9\s\.',]+$"),
-    "fluency_model_id": "cointegrated/roberta-large-cola-krishna2020",
     "fluency_batch": 4096,
     "fluency_threshold": 0.95,
 }
@@ -31,32 +29,6 @@ CONFIG = {
 
 def only_allowed(s: str) -> bool:
     return bool(CONFIG["allowed"].match(s or ""))
-
-
-@torch.no_grad()
-def embed_batch(embed_tok, embed_model, texts):
-    enc = embed_tok(
-        texts,
-        padding=True,
-        truncation=False,
-        return_tensors="pt",
-    )
-    enc = enc.to(embed_model.device)
-    out = embed_model(**enc)
-    x = out.last_hidden_state[:, -1]
-    x = F.normalize(x, p=2, dim=1)
-    return x
-
-
-def init_embed_model():
-    tok = AutoTokenizer.from_pretrained(CONFIG["embedder_model_id"], padding_side="left")
-    model = AutoModel.from_pretrained(
-        CONFIG["embedder_model_id"],
-        torch_dtype=torch.bfloat16,
-    )
-    model.to("cuda")
-    model.eval()
-    return tok, model
 
 
 def dedup_on_gpu(rows, embed_tok, embed_model, desc):
@@ -91,31 +63,6 @@ def dedup_on_gpu(rows, embed_tok, embed_model, desc):
     return dedup_rows
 
 
-def init_fluency_model():
-    tok = AutoTokenizer.from_pretrained(CONFIG["fluency_model_id"])
-    model = AutoModelForSequenceClassification.from_pretrained(
-        CONFIG["fluency_model_id"],
-        torch_dtype=torch.bfloat16,
-    )
-    model.to("cuda")
-    model.eval()
-    return tok, model
-
-
-@torch.no_grad()
-def fluency_filter_batch(flu_tok, flu_model, texts):
-    enc = flu_tok(
-        texts,
-        padding=True,
-        truncation=False,
-        return_tensors="pt",
-    )
-    enc = enc.to(flu_model.device)
-    out = flu_model(**enc)
-    probs = out.logits.softmax(dim=1)
-    return (probs[:, 0] >= CONFIG["fluency_threshold"]).tolist()
-
-
 def filter_with_fluency(flu_tok, flu_model, rows, needed, desc):
     selected = []
     if not rows or needed <= 0:
@@ -135,6 +82,7 @@ def filter_with_fluency(flu_tok, flu_model, rows, needed, desc):
             flu_tok,
             flu_model,
             texts,
+            CONFIG["fluency_threshold"],
         )
         for row, keep in zip(batch, keep_mask):
             if not keep:
@@ -147,7 +95,7 @@ def filter_with_fluency(flu_tok, flu_model, rows, needed, desc):
 
 def parse_args():
     ap = argparse.ArgumentParser(
-        description="Filter raw statements with embed-dedup + CoLA fluency.",
+        description="Filter raw statements with embed-dedup + fluency.",
     )
     ap.add_argument(
         "-c",
@@ -177,8 +125,7 @@ def main():
 
     with sqlite3.connect(CONFIG["raw_sqlite_path"]) as rc:
         cur = rc.cursor()
-        table_ident = quote_ident(table)
-        cur.execute(f"SELECT statement, label FROM {table_ident}")
+        cur.execute(f"SELECT statement, label FROM {table}")
         rows = []
         fetched = cur.fetchall()
         for s, lbl in fetched:
@@ -246,11 +193,10 @@ def main():
 
     with sqlite3.connect(CONFIG["out_sqlite_path"]) as oc:
         c = oc.cursor()
-        out_table_ident = quote_ident(table)
-        c.execute(f"DROP TABLE IF EXISTS {out_table_ident}")
+        c.execute(f"DROP TABLE IF EXISTS {table}")
         c.execute(
             f"""
-            CREATE TABLE {out_table_ident} (
+            CREATE TABLE {table} (
                 statement TEXT NOT NULL,
                 label INTEGER NOT NULL
             )
@@ -262,12 +208,13 @@ def main():
         for r in neg_top:
             rows_to_write.append((r["statement"], r["label"]))
         c.executemany(
-            f"INSERT INTO {out_table_ident} (statement,label) VALUES (?,?)",
+            f"INSERT INTO {table} (statement,label) VALUES (?,?)",
             rows_to_write,
         )
         oc.commit()
 
-        actual_total = get_table_rowcount_conn(oc, table)
+        c.execute(f"SELECT COUNT(*) FROM {table}")
+        actual_total = c.fetchone()[0]
 
     if actual_total != expected_total:
         raise ValueError(
@@ -277,4 +224,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

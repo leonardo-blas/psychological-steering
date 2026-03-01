@@ -2,9 +2,7 @@ import re
 import sqlite3
 import numpy as np
 import torch
-from transformers import AutoTokenizer, AutoModel
-from helpers import quote_ident
-from helpers import seed_all
+from helpers import seed_all, init_embed_model
 from openai import OpenAI
 from tqdm.auto import tqdm
 
@@ -15,7 +13,6 @@ CONFIG = {
     "psych_db": "data/inventories.db",
     "raw_sjts_db": "data/raw_sjts.db",
     "sjts_per_item": 25,
-    "embed_model_id": "Qwen/Qwen3-Embedding-0.6B",
     "embed_batch": 4096,
     "llm": "gpt-5.1",
     # Same decoding params as in Jiang et al.
@@ -158,9 +155,8 @@ def clean_sjt(text):
 
 def ensure_raw_table(conn, table_name):
     cur = conn.cursor()
-    ident = quote_ident(table_name)
     cur.execute(
-        f"CREATE TABLE IF NOT EXISTS {ident} ("
+        f"CREATE TABLE IF NOT EXISTS {table_name} ("
         "dimension TEXT,"
         "facet TEXT,"
         "item TEXT,"
@@ -178,23 +174,14 @@ def main():
     with sqlite3.connect(CONFIG["psych_db"]) as psych_conn:
         psych_cur = psych_conn.cursor()
         for psych_table in all_psych_tables:
-            psych_ident = quote_ident(psych_table)
-            psych_cur.execute(f"SELECT COUNT(*) FROM {psych_ident}")
+            psych_cur.execute(f"SELECT COUNT(*) FROM {psych_table}")
             n_items = psych_cur.fetchone()[0]
             if n_items == 0:
                 continue
             psych_tables.append(psych_table)
     if not psych_tables:
         return
-    embed_tokenizer = AutoTokenizer.from_pretrained(
-        CONFIG["embed_model_id"],
-        padding_side="left",
-    )
-    embed_model = AutoModel.from_pretrained(
-        CONFIG["embed_model_id"],
-        dtype=torch.bfloat16,
-    )
-    embed_model.to("cuda")
+    embed_tokenizer, embed_model = init_embed_model()
     heads, heads_matrix = load_heads()
     psych_items = []
     all_texts = []
@@ -203,9 +190,8 @@ def main():
         raw_cur = raw_conn.cursor()
         for psych_table in psych_tables:
             print(f"Processing table: {psych_table}", flush=True)
-            psych_ident = quote_ident(psych_table)
             psych_cur.execute(
-                f"SELECT dimension, facet, item, key FROM {psych_ident}"
+                f"SELECT dimension, facet, item, key FROM {psych_table}"
             )
             rows = psych_cur.fetchall()
             raw_cur.execute(
@@ -216,10 +202,9 @@ def main():
             exists = raw_cur.fetchone() is not None
             existing_counts = {}
             if exists:
-                raw_ident = quote_ident(psych_table)
                 raw_cur.execute(
                     f"SELECT dimension, facet, item, key, COUNT(*) "
-                    f"FROM {raw_ident} "
+                    f"FROM {psych_table} "
                     "GROUP BY dimension, facet, item, key"
                 )
                 for d, f, it, k, n in raw_cur.fetchall():
@@ -294,12 +279,11 @@ def main():
             if not pending_rows:
                 return
             table_name = pending_rows[0][0]
-            ident = quote_ident(table_name)
             values = []
             for _, d, f, it, k, sjt in pending_rows:
                 values.append((d, f, it, k, sjt))
             cur.executemany(
-                f"INSERT INTO {ident} (dimension, facet, item, key, sjt) "
+                f"INSERT INTO {table_name} (dimension, facet, item, key, sjt) "
                 "VALUES (?, ?, ?, ?, ?)",
                 values,
             )
@@ -374,4 +358,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

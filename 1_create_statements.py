@@ -4,7 +4,7 @@ import sqlite3
 from transformers import AutoTokenizer
 from tqdm.auto import tqdm
 from vllm import LLM, SamplingParams
-from helpers import seed_all, normalize_table_name, quote_ident, table_has_enough
+from helpers import seed_all, normalize_table_name, table_has_enough
 
 
 CONFIG = {
@@ -64,10 +64,9 @@ def clean_and_validate(line: str | None):
 
 
 def ensure_table(conn, table: str):
-    ident = quote_ident(table)
     conn.execute(
         f"""
-        CREATE TABLE IF NOT EXISTS {ident} (
+        CREATE TABLE IF NOT EXISTS {table} (
             statement TEXT PRIMARY KEY,
             label INTEGER NOT NULL CHECK(label IN (0,1))
         );
@@ -76,17 +75,15 @@ def ensure_table(conn, table: str):
 
 
 def insert_row(conn, table: str, statement: str, label: int) -> bool:
-    ident = quote_ident(table)
     cur = conn.execute(
-        f"INSERT OR IGNORE INTO {ident}(statement,label) VALUES (?,?)",
+        f"INSERT OR IGNORE INTO {table}(statement,label) VALUES (?,?)",
         (statement, label),
     )
     return cur.rowcount == 1
 
 
 def count_rows(conn, table: str, label: int) -> int:
-    ident = quote_ident(table)
-    cur = conn.execute(f"SELECT COUNT(*) FROM {ident} WHERE label=?", (label,))
+    cur = conn.execute(f"SELECT COUNT(*) FROM {table} WHERE label=?", (label,))
     row = cur.fetchone()
     return int(row[0])
 
@@ -199,4 +196,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
