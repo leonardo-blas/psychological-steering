@@ -3,17 +3,14 @@ import json
 import os
 import sqlite3
 import warnings
-import matplotlib.pyplot as plt
 import numpy as np
 import torch
-from matplotlib.backends.backend_pdf import PdfPages
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import (
     mean_squared_error,
     precision_recall_fscore_support,
     roc_auc_score,
 )
-from sklearn.model_selection import train_test_split
 from tqdm.auto import tqdm
 from helpers import normalize_table_name
 
@@ -73,83 +70,15 @@ def fetch_activations(db_path: str, table: str):
     return torch.from_numpy(X), torch.from_numpy(y)
 
 
-def wrap_title(title: str, max_len: int = 40) -> str:
-    if len(title) <= max_len:
-        return title
-    words = title.split()
-    lines = []
-    current = ""
-    for w in words:
-        if not current:
-            current = w
-        elif len(current) + 1 + len(w) <= max_len:
-            current = current + " " + w
-        else:
-            lines.append(current)
-            current = w
-    if current:
-        lines.append(current)
-    return "\n".join(lines)
-
-
-def plot_metric(
-    pdf,
-    xs,
-    train_vals,
-    test_vals,
-    title_prefix,
-    metric_name,
-    y_label,
-    ticks,
-    tick_labels,
-):
-    title_str = f"{title_prefix} • {metric_name}"
-    fig, ax = plt.subplots(figsize=(3, 3))
-    ax.plot(xs, train_vals, label="train")
-    ax.plot(xs, test_vals, label="test")
-    ax.set_xlabel("Layer", fontsize=6)
-    ax.set_ylabel(y_label, fontsize=6)
-    ax.set_title(wrap_title(title_str, max_len=40), fontsize=8)
-    if ticks:
-        ax.set_xticks(ticks)
-        ax.set_xticklabels(tick_labels, fontsize=6)
-    ax.tick_params(axis="both", labelsize=6)
-    ax.legend(fontsize=6)
-    fig.subplots_adjust(left=0.15, right=0.97, bottom=0.15, top=0.85)
-    pdf.savefig(fig)
-    plt.close(fig)
-
-
-def run_probe(X, y, reg_type, fit_intercept, mode):
+def run_probe(X, y, reg_type, fit_intercept):
     X = X.numpy()
     y = y.numpy()
     L = X.shape[1]
 
-    indices = np.arange(X.shape[0])
-    train_idx, test_idx = train_test_split(
-        indices, test_size=0.2, stratify=y, random_state=CONFIG["seed"]
-    )
-    y_tr_all = y[train_idx]
-    y_te_all = y[test_idx]
-
+    y_tr_all = y
     val_probs_agg = np.zeros_like(y_tr_all, dtype=np.float64)
-    test_probs_agg = np.zeros_like(y_te_all, dtype=np.float64)
-
-    acc_tr = []
-    acc_te = []
-    precision_tr = []
-    precision_te = []
-    recall_tr = []
-    recall_te = []
-    f1_tr_list = []
-    f1_te_list = []
-    auc_tr_list = []
-    auc_te_list = []
-    mse_tr_list = []
-    mse_te_list = []
 
     train_metrics = {}
-    test_metrics = {}
     distances_by_layer = {}
 
     Cs = [0.001, 0.01, 0.1, 1, 10, 100, 1000]
@@ -159,15 +88,12 @@ def run_probe(X, y, reg_type, fit_intercept, mode):
     for layer in tqdm(range(L), desc=desc):
         X_l = X[:, layer, :]
 
-        X_tr = X_l[train_idx, :]
-        X_te = X_l[test_idx, :]
-
+        X_tr = X_l
         y_tr = y_tr_all
-        y_te = y_te_all
 
         best_clf = None
         best_C = None
-        best_acc_te = -1.0
+        best_acc_tr = -1.0
         best_clf_any = None
         best_C_any = None
 
@@ -184,14 +110,13 @@ def run_probe(X, y, reg_type, fit_intercept, mode):
             clf.fit(X_tr, y_tr)
 
             acc_tr_c = clf.score(X_tr, y_tr)
-            acc_te_c = clf.score(X_te, y_te)
 
-            if acc_te_c > best_acc_te:
-                best_acc_te = acc_te_c
+            if acc_tr_c > best_acc_tr:
+                best_acc_tr = acc_tr_c
                 best_clf_any = clf
                 best_C_any = C
 
-            if (acc_tr_c == 1.0) and (acc_te_c == 1.0):
+            if acc_tr_c == 1.0:
                 best_clf = clf
                 best_C = C
                 break
@@ -201,48 +126,19 @@ def run_probe(X, y, reg_type, fit_intercept, mode):
             best_C = best_C_any
 
         y_tr_pred = best_clf.predict(X_tr)
-        y_te_pred = best_clf.predict(X_te)
-
         y_tr_prob = best_clf.predict_proba(X_tr)[:, 1]
-        y_te_prob = best_clf.predict_proba(X_te)[:, 1]
-
         acc_tr_layer = best_clf.score(X_tr, y_tr)
-        acc_te_layer = best_clf.score(X_te, y_te)
-
-        acc_tr.append(acc_tr_layer)
-        acc_te.append(acc_te_layer)
 
         prec_tr_val, rec_tr_val, f1_tr_val, _ = precision_recall_fscore_support(
             y_tr, y_tr_pred, average="binary", zero_division=0
         )
-        prec_te_val, rec_te_val, f1_te_val, _ = precision_recall_fscore_support(
-            y_te, y_te_pred, average="binary", zero_division=0
-        )
-
-        precision_tr.append(prec_tr_val)
-        precision_te.append(prec_te_val)
-        recall_tr.append(rec_tr_val)
-        recall_te.append(rec_te_val)
-        f1_tr_list.append(f1_tr_val)
-        f1_te_list.append(f1_te_val)
 
         try:
             auc_tr_val = roc_auc_score(y_tr, y_tr_prob)
         except ValueError:
             auc_tr_val = float("nan")
-        try:
-            auc_te_val = roc_auc_score(y_te, y_te_prob)
-        except ValueError:
-            auc_te_val = float("nan")
-
-        auc_tr_list.append(auc_tr_val)
-        auc_te_list.append(auc_te_val)
 
         mse_tr_val = mean_squared_error(y_tr, y_tr_prob)
-        mse_te_val = mean_squared_error(y_te, y_te_prob)
-
-        mse_tr_list.append(mse_tr_val)
-        mse_te_list.append(mse_te_val)
 
         layer_key = int(layer)
 
@@ -255,17 +151,7 @@ def run_probe(X, y, reg_type, fit_intercept, mode):
             "mse": float(mse_tr_val),
         }
 
-        test_metrics[layer_key] = {
-            "acc": float(acc_te_layer),
-            "precision": float(prec_te_val),
-            "recall": float(rec_te_val),
-            "f1": float(f1_te_val),
-            "auc": float(auc_te_val),
-            "mse": float(mse_te_val),
-        }
-
         val_probs_agg = val_probs_agg + y_tr_prob
-        test_probs_agg = test_probs_agg + y_te_prob
 
         w = torch.from_numpy(best_clf.coef_).squeeze(0)
         b = torch.tensor(best_clf.intercept_[0], dtype=w.dtype)
@@ -306,45 +192,20 @@ def run_probe(X, y, reg_type, fit_intercept, mode):
             }
         distances_by_layer[layer_key] = dist_layer
 
-    xs = list(range(L))
-
-    last_tick = ((L - 1) // 5) * 5
-    ticks = []
-    if L > 1:
-        ticks.append(1)
-        t = 5
-        while t <= last_tick:
-            ticks.append(t)
-            t = t + 5
-    tick_labels = [str(t) for t in ticks]
-
     val_probs_agg = val_probs_agg / float(L)
-    test_probs_agg = test_probs_agg / float(L)
-
     val_preds_agg = (val_probs_agg >= 0.5).astype(int)
-    test_preds_agg = (test_probs_agg >= 0.5).astype(int)
-
     acc_val_agg = float((val_preds_agg == y_tr_all).mean() * 100.0)
-    acc_test_agg = float((test_preds_agg == y_te_all).mean() * 100.0)
 
     prec_val_agg, rec_val_agg, f1_val_agg, _ = precision_recall_fscore_support(
         y_tr_all, val_preds_agg, average="binary", zero_division=0
-    )
-    prec_test_agg, rec_test_agg, f1_test_agg, _ = precision_recall_fscore_support(
-        y_te_all, test_preds_agg, average="binary", zero_division=0
     )
 
     try:
         auc_val_agg = roc_auc_score(y_tr_all, val_probs_agg)
     except ValueError:
         auc_val_agg = float("nan")
-    try:
-        auc_test_agg = roc_auc_score(y_te_all, test_probs_agg)
-    except ValueError:
-        auc_test_agg = float("nan")
 
     mse_val_agg = mean_squared_error(y_tr_all, val_probs_agg)
-    mse_test_agg = mean_squared_error(y_te_all, test_probs_agg)
 
     train_metrics["aggregation"] = {
         "acc": float(acc_val_agg),
@@ -355,98 +216,11 @@ def run_probe(X, y, reg_type, fit_intercept, mode):
         "mse": float(mse_val_agg),
     }
 
-    test_metrics["aggregation"] = {
-        "acc": float(acc_test_agg),
-        "precision": float(prec_test_agg),
-        "recall": float(rec_test_agg),
-        "f1": float(f1_test_agg),
-        "auc": float(auc_test_agg),
-        "mse": float(mse_test_agg),
-    }
-
     with open(os.path.join(OUT_DIR, "train_metrics.json"), "w") as f:
         json.dump(train_metrics, f, indent=2)
 
-    with open(os.path.join(OUT_DIR, "test_metrics.json"), "w") as f:
-        json.dump(test_metrics, f, indent=2)
-
     with open(os.path.join(OUT_DIR, "distances.json"), "w") as f:
         json.dump(distances_by_layer, f, indent=2)
-
-    title_prefix = (
-        f"{'Yes/No' if mode == 'b' else 'Statement'} probe • "
-        f"{CONCEPT} • {MODEL_DIR} • LR ({reg_type.upper()}, "
-        f"{'learned' if fit_intercept else 'zero'} b)"
-    )
-
-    pdf_path = os.path.join(OUT_DIR, "metrics.pdf")
-    with PdfPages(pdf_path) as pdf:
-        plot_metric(
-            pdf,
-            xs,
-            acc_tr,
-            acc_te,
-            title_prefix,
-            "accuracy",
-            "Accuracy",
-            ticks,
-            tick_labels,
-        )
-        plot_metric(
-            pdf,
-            xs,
-            precision_tr,
-            precision_te,
-            title_prefix,
-            "precision",
-            "Precision",
-            ticks,
-            tick_labels,
-        )
-        plot_metric(
-            pdf,
-            xs,
-            recall_tr,
-            recall_te,
-            title_prefix,
-            "recall",
-            "Recall",
-            ticks,
-            tick_labels,
-        )
-        plot_metric(
-            pdf,
-            xs,
-            f1_tr_list,
-            f1_te_list,
-            title_prefix,
-            "F1",
-            "F1",
-            ticks,
-            tick_labels,
-        )
-        plot_metric(
-            pdf,
-            xs,
-            auc_tr_list,
-            auc_te_list,
-            title_prefix,
-            "AUROC",
-            "AUROC",
-            ticks,
-            tick_labels,
-        )
-        plot_metric(
-            pdf,
-            xs,
-            mse_tr_list,
-            mse_te_list,
-            title_prefix,
-            "MSE",
-            "MSE",
-            ticks,
-            tick_labels,
-        )
 
 
 def parse_args():
@@ -484,9 +258,7 @@ def main():
     )
 
     needed_files = [
-        "metrics.pdf",
         "train_metrics.json",
-        "test_metrics.json",
         "distances.json",
     ]
     all_exist = True
@@ -500,9 +272,8 @@ def main():
 
     db_path = get_activations_db_path(args.model, args.mode)
     X, y = fetch_activations(db_path, table)
-    run_probe(X, y, args.regularization, args.fit_intercept, args.mode)
+    run_probe(X, y, args.regularization, args.fit_intercept)
 
 
 if __name__ == "__main__":
     main()
-

@@ -15,8 +15,6 @@ from helpers import (
 )
 
 CONFIG = {
-    "raw_sqlite_path": "data/raw_statements.db",
-    "out_sqlite_path": "data/statements.db",
     "seed": 42,
     "keep_per_label": 500,
     "batch_embed": 4096,
@@ -110,6 +108,17 @@ def parse_args():
         required=True,
         help="Phrase that was used to generate the statements (unused here, kept for CLI compatibility).",
     )
+    group = ap.add_mutually_exclusive_group(required=True)
+    group.add_argument(
+        "--classifier",
+        action="store_true",
+        help="Read/write classifier statement DBs.",
+    )
+    group.add_argument(
+        "--vector",
+        action="store_true",
+        help="Read/write vector statement DBs.",
+    )
     return ap.parse_args()
 
 
@@ -119,11 +128,24 @@ def main():
     concept_human = args.concept
     table = normalize_table_name(concept_human)
     expected_total = 2 * CONFIG["keep_per_label"]
+    raw_sqlite_path = (
+        "data/raw_classifier_statements.db"
+        if args.classifier
+        else "data/raw_vector_statements.db"
+    )
+    out_sqlite_path = (
+        "data/classifier_statements.db"
+        if args.classifier
+        else "data/vector_statements.db"
+    )
 
-    if table_has_enough(CONFIG["out_sqlite_path"], table, expected_total):
-        return
+    try:
+        if table_has_enough(out_sqlite_path, table, expected_total):
+            return
+    except FileNotFoundError:
+        pass
 
-    with sqlite3.connect(CONFIG["raw_sqlite_path"]) as rc:
+    with sqlite3.connect(raw_sqlite_path) as rc:
         cur = rc.cursor()
         cur.execute(f"SELECT statement, label FROM {table}")
         rows = []
@@ -191,7 +213,7 @@ def main():
     del flu_tok
     torch.cuda.empty_cache()
 
-    with sqlite3.connect(CONFIG["out_sqlite_path"]) as oc:
+    with sqlite3.connect(out_sqlite_path) as oc:
         c = oc.cursor()
         c.execute(f"DROP TABLE IF EXISTS {table}")
         c.execute(

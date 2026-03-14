@@ -8,7 +8,6 @@ from helpers import seed_all, normalize_table_name, table_has_enough
 
 
 CONFIG = {
-    "db_path": "data/raw_statements.db",
     "model_id": "meta-llama/Llama-3.1-8B-Instruct",
     "batch": 128,
     # Same decoding params as in Perez et al. (Anthropic).
@@ -140,6 +139,17 @@ def parse_args():
         default=42,
         help="Random seed (default: 42).",
     )
+    group = p.add_mutually_exclusive_group(required=True)
+    group.add_argument(
+        "--classifier",
+        action="store_true",
+        help="Write to classifier statements DB.",
+    )
+    group.add_argument(
+        "--vector",
+        action="store_true",
+        help="Write to vector statements DB.",
+    )
     return p.parse_args()
 
 
@@ -149,10 +159,18 @@ def main():
     concept = normalize_table_name(args.concept)
     phrase = args.phrase
     samples_per_label = args.texts
+    db_path = (
+        "data/raw_classifier_statements.db"
+        if args.classifier
+        else "data/raw_vector_statements.db"
+    )
 
     total_needed = 2 * samples_per_label
-    if table_has_enough(CONFIG["db_path"], concept, total_needed):
-        return
+    try:
+        if table_has_enough(db_path, concept, total_needed):
+            return
+    except FileNotFoundError:
+        pass
 
     tok = AutoTokenizer.from_pretrained(CONFIG["model_id"], use_fast=True)
 
@@ -167,7 +185,7 @@ def main():
     agree_user = user_prompt(persona_text, want_agree=True)
     disagree_user = user_prompt(persona_text, want_agree=False)
 
-    with sqlite3.connect(CONFIG["db_path"]) as conn:
+    with sqlite3.connect(db_path) as conn:
         ensure_table(conn, concept)
 
         for label, prompt in [(1, agree_user), (0, disagree_user)]:

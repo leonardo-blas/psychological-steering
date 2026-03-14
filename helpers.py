@@ -112,7 +112,7 @@ def normalize_table_name(s: str) -> str:
 
 def table_has_enough(db_path: str, table: str, total_needed: int) -> bool:
     if not Path(db_path).exists():
-        raise FileNotFoundError(f"Database file does not exist: {db_path}")
+        return False
     with sqlite3.connect(db_path) as conn:
         cur = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table,))
         if not cur.fetchone():

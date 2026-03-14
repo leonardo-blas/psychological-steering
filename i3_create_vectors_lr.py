@@ -29,15 +29,14 @@ def parse_args():
 
 
 def load_concepts(db_path: str):
-    concepts = ["openness", "conscientiousness", "extraversion", "agreeableness", "neuroticism"]
-#    concepts = []
-#    with sqlite3.connect(db_path) as conn:
-#        cur = conn.cursor()
-#        cur.execute("SELECT concept FROM concepts")
-#        for (c,) in cur.fetchall():
-#            c = str(c).strip()
-#            if c:
-#                concepts.append(c)
+    concepts = []
+    with sqlite3.connect(db_path) as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT concept FROM vector_concepts")
+        for (c,) in cur.fetchall():
+            c = str(c).strip()
+            if c:
+                concepts.append(c)
     return concepts
 
 
@@ -119,4 +118,4 @@ def main():
 
 if __name__ == "__main__":
     main()
-
+    

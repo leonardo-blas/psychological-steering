@@ -2,14 +2,14 @@ import sqlite3
 from pathlib import Path
 import torch
 from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import accuracy_score, precision_recall_fscore_support
 import joblib
+from tqdm.auto import tqdm
 from helpers import seed_all, embed_batch, init_embed_model
 
 
 CONFIG = {
     "seed": 42,
-    "probe_db_path": "data/statements.db",
+    "statements_path": "data/classifier_statements.db",
     "max_iter": 1000,
     "tol": 0.001,
 }
@@ -22,7 +22,7 @@ def classifier_path(name: str) -> Path:
 
 
 def get_tables():
-    with sqlite3.connect(CONFIG["probe_db_path"]) as conn:
+    with sqlite3.connect(CONFIG["statements_path"]) as conn:
         cur = conn.cursor()
         cur.execute(
             "SELECT name FROM sqlite_master "
@@ -35,7 +35,7 @@ def get_tables():
 def train_classifier_for_table(table: str, embed_tok, embed_model):
     texts = []
     labels = []
-    with sqlite3.connect(CONFIG["probe_db_path"]) as conn:
+    with sqlite3.connect(CONFIG["statements_path"]) as conn:
         cur = conn.cursor()
         cur.execute(f"SELECT statement, label FROM {table}")
         rows = cur.fetchall()
@@ -58,31 +58,15 @@ def train_classifier_for_table(table: str, embed_tok, embed_model):
     )
     clf.fit(X, y)
 
-    y_pred = clf.predict(X)
-    acc = accuracy_score(y, y_pred)
-    prec, rec, f1, _ = precision_recall_fscore_support(
-        y,
-        y_pred,
-        average="binary",
-        zero_division=0,
-    )
-    print(
-        f"Classifier metrics ({table}): "
-        f"acc={acc:.4f}  prec={prec:.4f}  rec={rec:.4f}  f1={f1:.4f}"
-    )
-
     path = classifier_path(table)
     joblib.dump(clf, path)
-    print(f"Saved classifier to {path}")
 
 
 def main():
     seed_all(CONFIG["seed"])
     tables = get_tables()
-    print(f"Found tables: {', '.join(tables)}")
     embed_tok, embed_model = init_embed_model()
-    for table in tables:
-        print(f"Training classifier for table {table}...")
+    for table in tqdm(tables, desc="Training classifiers", unit="table", leave=True):
         train_classifier_for_table(table, embed_tok, embed_model)
 
 

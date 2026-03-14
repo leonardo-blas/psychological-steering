@@ -16,26 +16,6 @@ CONFIG = {
     "seed": 42,
     "sjts_db_path": "data/sjts.db",
     "batch_size": 1024,
-    "big5_dimensions": [
-        "Openness",
-        "Conscientiousness",
-        "Extraversion",
-        "Agreeableness",
-        "Neuroticism",
-    ],
-    "dark_triad_dimensions": [
-        "Machiavellianism",
-        "Narcissism",
-        "Psychopathy",
-    ],
-    "hexaco_dimensions": [
-        "Honesty-Humility",
-        "Emotionality",
-        "Extraversion",
-        "Agreeableness",
-        "Conscientiousness",
-        "Openness to Experience",
-    ],
     "trait_json_path": "data/TRAIT.json",
     "zhang_tsv_path": "data/sjts_zhang.tsv",
     "oostrom_tsv_path": "data/sjts_oostrom.tsv",
@@ -145,8 +125,6 @@ def load_trait_texts():
             dim_norm = normalize_dark_triad_dim(personality_raw)
         if dim_norm is None:
             continue
-        if dim_norm not in CONFIG["big5_dimensions"] and dim_norm not in CONFIG["dark_triad_dimensions"]:
-            continue
         situation = row.get("situation", "")
         query = row.get("query", "")
         combined = (situation + " " + query).strip()
@@ -173,8 +151,6 @@ def load_mpi_sjt_texts():
         dim_norm = normalize_big5_dim(dim)
         if dim_norm is None:
             continue
-        if dim_norm not in CONFIG["big5_dimensions"]:
-            continue
         sjt_text = sjt.strip()
         if not sjt_text:
             continue
@@ -197,8 +173,6 @@ def load_hexaco_sjt_texts():
             continue
         dim_norm = normalize_hexaco_dim(dim)
         if dim_norm is None:
-            continue
-        if dim_norm not in CONFIG["hexaco_dimensions"]:
             continue
         sjt_text = sjt.strip()
         if not sjt_text:
@@ -223,8 +197,6 @@ def load_sd3_sjt_texts():
             continue
         dim_norm = normalize_dark_triad_dim(dim)
         if dim_norm is None:
-            continue
-        if dim_norm not in CONFIG["dark_triad_dimensions"]:
             continue
         sjt_text = sjt.strip()
         if not sjt_text:
@@ -262,8 +234,6 @@ def load_zhang_texts():
             dim_norm = normalize_hexaco_dim(dim_raw)
             if dim_norm is None:
                 continue
-            if dim_norm not in CONFIG["hexaco_dimensions"]:
-                continue
             texts.append(stem)
             sources.append("Zhang")
             dims.append(dim_norm)
@@ -284,8 +254,6 @@ def load_oostrom_texts():
                 continue
             dim_norm = normalize_hexaco_dim(dim_raw)
             if dim_norm is None:
-                continue
-            if dim_norm not in CONFIG["hexaco_dimensions"]:
                 continue
             texts.append(sjt)
             sources.append("Oostrom")
@@ -356,7 +324,7 @@ def plot_pca(X, src_labels, pdf_path):
 
     src_to_color = {}
     for s in sources_unique:
-        if s in ("IPIP", "HEXACO", "SD3"):
+        if s in ("IPIP", "HEXACO", "SD3", "MFQ30"):
             src_to_color[s] = CONFIG["baby_orange"]
         else:
             src_to_color[s] = CONFIG["baby_gray"]
@@ -392,7 +360,7 @@ def plot_pca(X, src_labels, pdf_path):
         if sources_unique:
             ax.legend(
                 loc="lower center",
-                bbox_to_anchor=(0.5, 1.02),
+                bbox_to_anchor=(0.5, 1.12),
                 ncol=len(sources_unique),
                 frameon=True,
                 fontsize=8,
@@ -402,7 +370,7 @@ def plot_pca(X, src_labels, pdf_path):
                 borderaxespad=0.0,
             )
 
-        fig.tight_layout(rect=(0.0, 0.0, 1.0, 0.92))
+        fig.tight_layout(rect=(0.0, 0.0, 1.0, 0.91))
         pdf.savefig(fig, bbox_inches="tight", pad_inches=0.02)
         plt.close(fig)
 
@@ -413,22 +381,6 @@ def centroid_similarity(emb_a, emb_b):
     centroid_a = emb_a.mean(axis=0)
     centroid_b = emb_b.mean(axis=0)
     return 1 - cosine(centroid_a, centroid_b)
-
-
-def compare_by_dim(emb, sources, dims, left_src, right_src, prefix, label, dim_values):
-    for d in dim_values:
-        idx_l = [i for i, (s, dim) in enumerate(zip(sources, dims)) if s == left_src and dim == d]
-        idx_r = [i for i, (s, dim) in enumerate(zip(sources, dims)) if s == right_src and dim == d]
-        if not idx_l or not idx_r:
-            continue
-
-        sim = centroid_similarity(emb[idx_l], emb[idx_r])
-        X = np.vstack([emb[idx_l], emb[idx_r]])
-        src_labels = [left_src] * len(idx_l) + [right_src] * len(idx_r)
-        dim_slug = d.lower().replace(" ", "_").replace("-", "_")
-        pdf = os.path.join(CONFIG["out_dir"], f"{prefix}_{dim_slug}.pdf")
-        plot_pca(X, src_labels, pdf)
-        print(f"{label} - {d}: {sim:.6f}")
 
 
 def main():
@@ -470,65 +422,34 @@ def main():
         batch_size=int(CONFIG["batch_size"]),
     )
 
-    print("\n=== TRAIT vs Ours (IPIP-120 based) ===")
-    compare_by_dim(
-        emb,
-        sources_all,
-        dims_all,
-        "TRAIT",
-        "IPIP",
-        "trait",
-        "TRAIT vs Ours (IPIP-120 based)",
-        CONFIG["big5_dimensions"],
-    )
+    jobs = [
+        ("TRAIT", "IPIP", "trait", "TRAIT vs Ours (IPIP-120 based)"),
+        ("TRAIT", "SD3", "trait_sd3", "TRAIT vs Ours (SD3 based)"),
+        ("Oostrom", "HEXACO", "oostrom", "Oostrom vs Ours (HEXACO-60 based)"),
+        ("Zhang", "HEXACO", "zhang", "Zhang vs Ours (HEXACO-60 based)"),
+        ("Clifford", "MFQ30", "clifford", "Clifford vs Ours (MFQ-30 based)"),
+    ]
 
-    print("\n=== TRAIT vs Ours (SD3 based) ===")
-    compare_by_dim(
-        emb,
-        sources_all,
-        dims_all,
-        "TRAIT",
-        "SD3",
-        "trait_sd3",
-        "TRAIT vs Ours (SD3 based)",
-        CONFIG["dark_triad_dimensions"],
-    )
+    for left_src, right_src, prefix, label in jobs:
+        print(f"\n=== {label} ===")
 
-    print("\n=== Oostrom vs Ours (HEXACO-60 based) ===")
-    compare_by_dim(
-        emb,
-        sources_all,
-        dims_all,
-        "Oostrom",
-        "HEXACO",
-        "oostrom",
-        "Oostrom vs Ours (HEXACO-60 based)",
-        CONFIG["hexaco_dimensions"],
-    )
+        compare_dims = sorted({d for s, d in zip(sources_all, dims_all) if s == right_src and d is not None})
+        if not compare_dims:
+            raise ValueError(f"No dimensions found for reference source {right_src} in {label}")
 
-    print("\n=== Zhang vs Ours (HEXACO-60 based) ===")
-    compare_by_dim(
-        emb,
-        sources_all,
-        dims_all,
-        "Zhang",
-        "HEXACO",
-        "zhang",
-        "Zhang vs Ours (HEXACO-60 based)",
-        CONFIG["hexaco_dimensions"],
-    )
+        for d in compare_dims:
+            idx_l = [i for i, (s, dim) in enumerate(zip(sources_all, dims_all)) if s == left_src and dim == d]
+            idx_r = [i for i, (s, dim) in enumerate(zip(sources_all, dims_all)) if s == right_src and dim == d]
+            if not idx_l or not idx_r:
+                raise ValueError(f"Missing rows for {label} at dimension {d}")
 
-    print("\n=== Clifford vs Ours (MFQ-30 based) ===")
-    compare_by_dim(
-        emb,
-        sources_all,
-        dims_all,
-        "Clifford",
-        "MFQ30",
-        "clifford",
-        "Clifford vs Ours (MFQ-30 based)",
-        sorted({d for d in dims_all if d is not None}),
-    )
+            sim = centroid_similarity(emb[idx_l], emb[idx_r])
+            X = np.vstack([emb[idx_l], emb[idx_r]])
+            src_labels = [left_src] * len(idx_l) + [right_src] * len(idx_r)
+            dim_slug = d.lower().replace(" ", "_").replace("-", "_")
+            pdf = os.path.join(CONFIG["out_dir"], f"{prefix}_{dim_slug}.pdf")
+            plot_pca(X, src_labels, pdf)
+            print(f"{label} - {d}: {sim:.6f}")
 
 
 if __name__ == "__main__":

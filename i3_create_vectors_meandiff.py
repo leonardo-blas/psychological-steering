@@ -25,7 +25,7 @@ def load_concepts(db_path: str):
     concepts = []
     with sqlite3.connect(db_path) as conn:
         cur = conn.cursor()
-        cur.execute("SELECT concept FROM concepts")
+        cur.execute("SELECT concept FROM vector_concepts")
         for (c,) in cur.fetchall():
             c = str(c).strip()
             if c:

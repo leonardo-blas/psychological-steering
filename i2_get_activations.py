@@ -12,7 +12,7 @@ from helpers import seed_all, normalize_table_name
 
 CONFIG = {
     "concepts_db": "data/concepts.db",
-    "src_db": "data/statements.db",
+    "src_db": "data/vector_statements.db",
     "seed": 42,
     "expected_rows": 1000,
     "system_text": "You are a person.",
@@ -41,7 +41,7 @@ def load_concepts(db_path: str):
     concepts = []
     with sqlite3.connect(db_path) as conn:
         cur = conn.cursor()
-        cur.execute("SELECT concept FROM concepts")
+        cur.execute("SELECT concept FROM vector_concepts")
         for (c,) in cur.fetchall():
             c = str(c).strip()
             if c:

@@ -11,7 +11,6 @@ from injection_utils import VECTORS_ROOT, get_method_dir, get_mode_dir
 CONFIG = {
     "seed": 42,
     "results_path": "results",
-    "probe_db_path": "data/statements.db",
     "probe_embed_batch": 512,
     "probe_max_length": 64,
     "fluency_batch_size": 512,
