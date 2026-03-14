@@ -1,0 +1,1 @@
+To run `5_filter_atomic10x.py`, `ATOMIC10X.jsonl` is needed. It may be procured from https://github.com/peterwestai2/symbolic-knowledge-distillation/tree/main.
