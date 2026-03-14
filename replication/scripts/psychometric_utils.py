@@ -77,7 +77,7 @@ def _normalize_concepts(concepts):
 
 def load_inventory_rows(table_name, concepts=None):
     col = "dimension"
-    with sqlite3.connect("../../data/psychometrics.db") as con:
+    with sqlite3.connect("../data/psychometrics.db") as con:
         cur = con.cursor()
         if concepts:
             if isinstance(concepts, str):
@@ -122,7 +122,7 @@ def load_sjts_rows(table_name, concepts):
         f'SELECT sjt FROM "{table_name}" '
         f"WHERE {col} IN ({placeholders})"
     )
-    with sqlite3.connect("../../data/sjts.db") as con:
+    with sqlite3.connect("../data/sjts.db") as con:
         cur = con.cursor()
         cur.execute(sql, dims)
         rows = cur.fetchall()

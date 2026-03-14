@@ -9,9 +9,9 @@ from tqdm.auto import tqdm
 
 CONFIG = {
     "seed": 42,
-    "heads_db": "../../data/heads.db",
-    "psych_db": "../../data/inventories.db",
-    "raw_sjts_db": "../../data/raw_sjts.db",
+    "heads_db": "../data/heads.db",
+    "psych_db": "../data/inventories.db",
+    "raw_sjts_db": "../data/raw_sjts.db",
     "sjts_per_item": 25,
     "embed_batch": 4096,
     "llm": "gpt-5.1",

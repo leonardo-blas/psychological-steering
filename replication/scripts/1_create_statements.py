@@ -160,9 +160,9 @@ def main():
     phrase = args.phrase
     samples_per_label = args.texts
     db_path = (
-        "../../data/raw_classifier_statements.db"
+        "../data/raw_classifier_statements.db"
         if args.classifier
-        else "../../data/raw_vector_statements.db"
+        else "../data/raw_vector_statements.db"
     )
 
     total_needed = 2 * samples_per_label

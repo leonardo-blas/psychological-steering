@@ -15,8 +15,8 @@ from helpers import (
 
 
 CONFIG = {
-    "input_db": "../../data/validation_inventories.db",
-    "output_db": "../../data/validation_inventories_labeled.db",
+    "input_db": "../data/validation_inventories.db",
+    "output_db": "../data/validation_inventories_labeled.db",
     "ours": {
         "output_suffix": "ours",
         "classifiers_dir": "classifiers",

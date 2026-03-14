@@ -14,12 +14,12 @@ from helpers import seed_all, init_embed_model, embed_texts
 
 CONFIG = {
     "seed": 42,
-    "sjts_db_path": "../../data/sjts.db",
+    "sjts_db_path": "../data/sjts.db",
     "batch_size": 1024,
-    "trait_json_path": "../../data/TRAIT.json",
-    "zhang_tsv_path": "../../data/sjts_zhang.tsv",
-    "oostrom_tsv_path": "../../data/sjts_oostrom.tsv",
-    "clifford_tsv_path": "../../data/sjts_clifford.tsv",
+    "trait_json_path": "../data/TRAIT.json",
+    "zhang_tsv_path": "../data/sjts_zhang.tsv",
+    "oostrom_tsv_path": "../data/sjts_oostrom.tsv",
+    "clifford_tsv_path": "../data/sjts_clifford.tsv",
     "mpi_table": "mpi120",
     "hexaco_table": "hexaco60",
     "sd3_table": "sd3",

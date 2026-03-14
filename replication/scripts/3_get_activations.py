@@ -9,7 +9,7 @@ from helpers import seed_all, normalize_table_name, table_has_enough
 
 
 CONFIG = {
-    "src_db": "../../data/vector_statements.db",
+    "src_db": "../data/vector_statements.db",
     "seed": 42,
     "expected_rows": 1000,
     "system_text": "You are a person.",
@@ -44,7 +44,7 @@ def get_dest_db_path(model_name: str, mode: str) -> str:
         subdir = "binary_choice"
     else:
         subdir = "statement"
-    return f"../../data/{subdir}_activations/{model_short}.db"
+    return f"../data/{subdir}_activations/{model_short}.db"
 
 
 def fetch_rows(table: str):

@@ -15,8 +15,8 @@ from helpers import init_embed_model, embed_texts
 
 CONFIG = {
     "seed": 42,
-    "anthropic_dir": "../../data/anthropic_statements",
-    "statements_db_path": "../../data/vector_statements.db",
+    "anthropic_dir": "../data/anthropic_statements",
+    "statements_db_path": "../data/vector_statements.db",
     "out_dir": "vector_statements_validation",
     "batch_size": 512,
     "concepts": ["openness", "conscientiousness", "extraversion", "agreeableness", "neuroticism", "psychopathy", "narcissism", "machiavellianism"],

@@ -14,7 +14,7 @@ CONFIG = {
     "probe_embed_batch": 512,
     "probe_max_length": 64,
     "fluency_batch_size": 512,
-    "sjts_db_path": "../../data/sjts.db",
+    "sjts_db_path": "../data/sjts.db",
     "inventory_proper_names": {
         "mpi120": "MPI-120",
         "sd4": "SD4",

@@ -129,14 +129,14 @@ def main():
     table = normalize_table_name(concept_human)
     expected_total = 2 * CONFIG["keep_per_label"]
     raw_sqlite_path = (
-        "../../data/raw_classifier_statements.db"
+        "../data/raw_classifier_statements.db"
         if args.classifier
-        else "../../data/raw_vector_statements.db"
+        else "../data/raw_vector_statements.db"
     )
     out_sqlite_path = (
-        "../../data/classifier_statements.db"
+        "../data/classifier_statements.db"
         if args.classifier
-        else "../../data/vector_statements.db"
+        else "../data/vector_statements.db"
     )
 
     try:

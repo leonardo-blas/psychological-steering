@@ -5,10 +5,10 @@ from helpers import seed_all, embed_batch, init_embed_model, init_fluency_model,
 
 
 CONFIG = {
-    "raw_sqlite_path": "../../data/raw_sjts.db",
-    "out_sqlite_path": "../../data/sjts.db",
+    "raw_sqlite_path": "../data/raw_sjts.db",
+    "out_sqlite_path": "../data/sjts.db",
     "seed": 42,
-    "similarity_threshold": 0.90,
+    "similarity_threshold": 0.875,
     "fluency_batch": 4096,
     "fluency_threshold": 0.95,
 }

@@ -37,7 +37,7 @@ def get_mode_dir(mode: str) -> str:
 def get_activations_db_path(model_name: str, mode: str) -> str:
     model_short = model_name.split("/")[-1]
     mode_dir = get_mode_dir(mode)
-    return f"../../data/{mode_dir}_activations/{model_short}.db"
+    return f"../data/{mode_dir}_activations/{model_short}.db"
 
 
 def fetch_activations(db_path: str, table: str):

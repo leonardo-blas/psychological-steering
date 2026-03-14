@@ -11,8 +11,8 @@ from helpers import seed_all, embed_batch, init_embed_model
 
 
 CONFIG = {
-    "db_path": "../../data/heads.db",
-    "atomic_path": "../../data/ATOMIC10X.jsonl",
+    "db_path": "../data/heads.db",
+    "atomic_path": "../data/ATOMIC10X.jsonl",
     "seed": 42,
     # ATOMIC10X filter.
     "min_p_valid": 0.99,

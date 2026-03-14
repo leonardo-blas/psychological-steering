@@ -9,7 +9,7 @@ from helpers import seed_all, embed_batch, init_embed_model
 
 CONFIG = {
     "seed": 42,
-    "statements_path": "../../data/classifier_statements.db",
+    "statements_path": "../data/classifier_statements.db",
     "max_iter": 1000,
     "tol": 0.001,
 }
