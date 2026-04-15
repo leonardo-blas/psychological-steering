@@ -1,3 +1,3 @@
-Repository for "Psychological Steering of Large Language Models with Representation Engineering".
+Repository for "Psychological Steering of Large Language Models".
 
-Paper will be on arXiv shortly and replication materials will be available soon.
+Paper will be on arXiv shortly.
