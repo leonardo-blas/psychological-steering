@@ -23,6 +23,7 @@ def mean(xs):
 def parse_args():
     ap = argparse.ArgumentParser()
     ap.add_argument("--model", required=True)
+    ap.add_argument("-bs", "--batch_size", type=int, default=128)
     ap.add_argument("--quantize", "-q", action="store_true")
     return ap.parse_args()
 
@@ -129,7 +130,7 @@ def main():
     inventory = "mpi120"
     method = "meandiff"
     mode = "s"
-    batch_size = 128
+    batch_size = int(args.batch_size)
     fit_intercept = False
 
     model_dir = Path(args.model).name
