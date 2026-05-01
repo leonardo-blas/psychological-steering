@@ -317,7 +317,11 @@ def inject(
             T_prompt = T_in
             for b in range(out.size(0)):
                 gen_ids = out[b, T_prompt:]
-                text = assistant_prefix + tokenizer.decode(gen_ids, skip_special_tokens=True)
+                text = assistant_prefix + tokenizer.decode(
+                    gen_ids,
+                    skip_special_tokens=True,
+                    clean_up_tokenization_spaces=False,
+                )
                 outputs.append(text.strip())
 
             pbar.update(len(batch_prompts))
