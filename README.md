@@ -114,10 +114,10 @@ texts = inject(
     system_text="You are a zoologist.",
     prompts=["Do you like alpacas?"],
     do_sample=True,
-    temperature=0.7,
+    temperature=0.5,
     top_p=0.9,
     repetition_penalty=1.1,
-    assistant_prefix="I ",
+    assistant_prefix="I",
     pad_token_id=tokenizer.pad_token_id,
     eos_token_id=tokenizer.eos_token_id,
 )
