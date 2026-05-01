@@ -72,3 +72,56 @@ Modify the script to achieve different steering results or pass different instru
     - `10_get_p2_ocean_baseline.py --model Qwen/Qwen3-1.7B --batch_size 128`
 11. Lastly, we conduct OCEAN cross-trait sweeps using only MDS (mean-difference, statement activations) injections. Quantization is avaiable with `-q`.
     - `11_cross_trait_sweeps.py --model Qwen/Qwen3-1.7B --batch_size 128`
+   
+## After getting sweep results
+To get the best MDS injection settings (layer and coefficient) for a concept, do:
+
+`python3 get_best_intervention_settings.py --concept "openness" --model Qwen/Qwen3-1.7B`
+
+To inject an MDS vector, do:
+```py
+import torch
+from transformers import AutoTokenizer, AutoModelForCausalLM
+from injection_utils import inject
+
+HF_MODEL_ID = "meta-llama/Llama-3.1-8B-Instruct"
+
+tokenizer = AutoTokenizer.from_pretrained(HF_MODEL_ID)
+if tokenizer.pad_token is None:
+    tokenizer.pad_token = tokenizer.eos_token
+tokenizer.padding_side = "left"
+tokenizer.clean_up_tokenization_spaces = False
+
+model = AutoModelForCausalLM.from_pretrained(
+    HF_MODEL_ID,
+    dtype=torch.bfloat16,
+    device_map="auto",
+    low_cpu_mem_usage=True,
+).eval()
+
+texts = inject(
+    model=model,
+    tokenizer=tokenizer,
+    method="meandiff",
+    concepts=["openness"],
+    layers=[12],
+    model_name=HF_MODEL_ID,
+    alphas=[[-5]],
+    mode="s",
+    stride=1,
+    max_new_tokens=128,
+    batch_size=1,
+    system_text="You are a zoologist.",
+    prompts=["Do you like alpacas?"],
+    do_sample=True,
+    temperature=0.7,
+    top_p=0.9,
+    repetition_penalty=1.1,
+    assistant_prefix="I ",
+    pad_token_id=tokenizer.pad_token_id,
+    eos_token_id=tokenizer.eos_token_id,
+)
+
+print(texts[0])
+
+```
